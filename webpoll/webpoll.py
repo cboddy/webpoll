@@ -40,7 +40,8 @@ class WebPoll(object):
             email_server_address: email server that will send messages
             email_user: credentials for email_server_address
             email_password: credentials for email_server_address
-            email_targets: a list of email-recipients
+            email_targets: a list of email-recipients. When email_targets is None or empty
+            defaults to [email_user]
         """
         self.target_urls = target_urls
         self.target_links =  [re.compile(regex) for regex in target_links]
@@ -48,7 +49,7 @@ class WebPoll(object):
         self.email_server_address = email_server_address
         self.email_user =  email_user
         self.email_password = email_password
-        self.email_targets = email_targets
+        self.email_targets = [email_user] if not email_targets else email_targets
         self.lock = threading.Lock()
         self._is_finished = False
 
@@ -66,6 +67,11 @@ class WebPoll(object):
         self.is_finished = True
 
     def tick(self, now):
+        """
+        fetches and filters the links in each page in self.target_urls 
+        and notifies each of self.email_targets 
+        via email if any of the links match any of self.target_links
+        """
         for url in self.target_urls:
             page = fetch(url)
             links = filter_links(page)
