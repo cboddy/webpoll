@@ -6,6 +6,9 @@ import threading
 import datetime
 import smtplib
 import os, ConfigParser
+import collections
+
+Notification = collections.namedtuple("Notification", ["url", "link"])
 
 def fetch(url):
     """make an HTTP GET request and return the data @ url"""
@@ -21,13 +24,26 @@ def filter_links(html_page):
     soup = BeautifulSoup(html_page, "html.parser")
     return [link.get("href") for link in soup.find_all("a")]
 
-def msg_body_builder(url, link_regex_pattern, timestamp):
-    return """Hello, 
-The web-page located @ '{}', currently links to {} as of {}.
+def msg_body_builder(notifications, timestamp):
+    """
+    args:
+        notifications: a list of Notification tuples
+        timestamp: a string timestamp
+    return:
+        email body expressing notification information
+    """
+    assert(len(notifications) > 0)
+
+    notification_msg = "\n".join(["The web page {} links to {}.".format(n.url, n.link)\
+            for n in notifications])
+    
+    return """Hello, as of {}
+
+{} 
 
 Chur,
 Webpoll
-""".format(url, link_regex_pattern, timestamp)
+""".format(timestamp, notification_msg)
 
 
 class WebPoll(object):
@@ -59,9 +75,9 @@ class WebPoll(object):
             return self._is_finished
 
     @is_finished.setter
-    def is_finished(self, var):
+    def is_finished(self, is_finished):
         with self.lock:
-            self._is_finished = var 
+            self._is_finished = is_finished 
 
     def close(self):
         self.is_finished = True
@@ -72,25 +88,28 @@ class WebPoll(object):
         and notifies each of self.email_targets 
         via email if any of the links match any of self.target_links
         """
-        for url in self.target_urls:
-            page = fetch(url)
-            links = filter_links(page)
-            for link in links: 
-                for target_link in self.target_links:
-                    if target_link.search(link):
-                        self.notify_by_email(url, target_link, now)
+        pages = [fetch(url) for url in self.target_urls]
 
-    def notify_by_email(self, url, link_regex_pattern, timestamp):
+        notifications = [Notification(url, link)  \
+                for regex in self.target_links\
+                for link in filter_links(page)\
+                for page in  pages\
+                if regex.search(link)]
+        
+        if notifications:
+            email_body = msg_body_builder(notifications, now.isoformat)
+            self.notify_by_email(email_body)
+
+
+    def notify_by_email(self, msg_body):
         """
         send email message from self.email_user to self.email_targets stating that link_regex_pattern is
         in url as of timestamp
         """
-        email_body = msg_body_builder(url, link_regex_pattern, str(timestamp))
-
         server = smtplib.SMTP(self.email_server_address)
         server.login(self.email_user, self.email_password)
         for email_target in self.email_targets:
-            server.sendmail(self.email_user, email_target, email_body)
+            server.sendmail(self.email_user, email_target, msg_body)
         server.quit()
 
     def run(self):
