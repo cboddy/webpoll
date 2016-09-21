@@ -8,15 +8,21 @@ import smtplib
 import os
 import ConfigParser
 import collections
+import getpass
+import logging
+import sys
 
 Notification = collections.namedtuple("Notification", ["url", "link"])
 
 
 def fetch(url):
     """make an HTTP GET request and return the data @ url"""
-    req = urllib2.Request(url)
-    return urllib2.urlopen(req).read()
-
+    try:
+        req = urllib2.Request(url)
+        return urllib2.urlopen(req).read()
+    except Exception as ex:
+        logging.error("Failed to fetch url "+ url +" due to "+str(ex))
+        return None
 
 def filter_links(html_page):
     """
@@ -58,6 +64,7 @@ class WebPoll(object):
         args: 
             target_urls: a list of urls to poll
             target_links: a list of url-fragments (or regexs) to look for
+            poll_interval: time interval in seconds
             email_server_address: email server that will send messages
             email_user: credentials for email_server_address
             email_password: credentials for email_server_address
@@ -98,12 +105,14 @@ class WebPoll(object):
 
         notifications = [Notification(url, link)
                          for regex in self.target_links
-                         for link in filter_links(page)
                          for page in pages
+                         for link in filter_links(page)
+                         if page is not None
                          if regex.search(link)]
 
         if notifications:
-            email_body = msg_body_builder(notifications, now.isoformat)
+            email_body = msg_body_builder(notifications, now.isoformat())
+            logging.debug("Sending email message")
             self.notify_by_email(email_body)
 
     def notify_by_email(self, msg_body):
@@ -112,38 +121,65 @@ class WebPoll(object):
         in url as of timestamp
         """
         server = smtplib.SMTP(self.email_server_address)
+        server.starttls()
         server.login(self.email_user, self.email_password)
         for email_target in self.email_targets:
             server.sendmail(self.email_user, email_target, msg_body)
         server.quit()
 
     def run(self):
-        last_tick = None
         while not self.is_finished:
-            start_time = datetime.datetime.now()
-            self.tick(start_time)
-            end_time = datetime.datetime.now()
-            time_delta = end_time - start_time
-            sleep_seconds = min(0, self.poll_interval - time_delta.seconds)
-            time.sleep(sleep_seconds)
+            try:
+                start_time = datetime.datetime.now()
+                self.tick(start_time)
+                end_time = datetime.datetime.now()
+            except Exception as ex:
+                logging.error("Tick failed! :"+str(ex))
+            finally:
+                time_delta = end_time - start_time
+                sleep_seconds = max(0, self.poll_interval - time_delta.seconds)
+                time.sleep(sleep_seconds)
 
 
 def main():
     config = ConfigParser.ConfigParser()
     config.read(["app.cfg", os.path.expanduser("~/.webpoll.cfg")])
-    get_param = lambda x, default: config.get("webpoll", x, default)
-    get_list_param = lambda x: get_param(x, None).split(",")
+    
+    def get_param(param, default=None):
+        try:
+            return config.get("webpoll", param)
+        except ConfigParser.NoOptionError:
+            return default
+        
+    log_path = get_param("log_path", os.path.expanduser("~/.webpoll.log"))
+    logging.basicConfig(
+        filename=log_path, 
+        #stream=sys.stdout,
+        format='%(asctime)s %(message)s', 
+        datefmt='%m/%d/%Y %I:%M:%S %p', 
+        level=logging.DEBUG)
+
+
+    email_user = get_param("email_user")
+    assert(email_user)
+    
+    get_list_param = lambda x: get_param(x).split(",")
+
+    email_password = get_param("email_password")
+    if not email_password:
+        email_password = getpass.getpass("Enter email password for: '{}' : ".format(email_user))
 
     webpoll = WebPoll(
         get_list_param("links"),
         get_list_param("link_regexs"),
-        get_param("poll_interval", 60 * 30),
+        int(get_param("poll_interval_seconds", "600")),
         get_param("email_server_address", "smtp.gmail.com:587"),
-        get_param("email_user", None),
-        get_param("email_password", None),
-        get_param("email_targets", None))
+        email_user,
+        email_password,
+        get_param("email_targets"))
 
     webpoll.run()
 
 if __name__ == "__main__":
     main()
+    poll_interval_seconds=6
