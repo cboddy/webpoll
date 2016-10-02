@@ -137,6 +137,7 @@ class WebPoll(object):
             except Exception as ex:
                 logger.error("Tick failed! :"+str(ex))
             finally:
+                end_time = datetime.datetime.now()
                 time_delta = end_time - start_time
                 sleep_seconds = max(0, self.poll_interval - time_delta.seconds)
                 time.sleep(sleep_seconds)
@@ -181,4 +182,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    poll_interval_seconds=6
