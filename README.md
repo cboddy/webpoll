@@ -29,6 +29,7 @@ poll_interval_seconds=600
 </pre>
 
 where:
+
     * links: csv links
     * link_regexs: csv of regexs to search for in thelinks
     * email_user is the account from which you will send the notifications 
