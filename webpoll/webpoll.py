@@ -10,10 +10,11 @@ import ConfigParser
 import collections
 import getpass
 import logging
+import logging.handlers
 import sys
 
 Notification = collections.namedtuple("Notification", ["url", "link"])
-
+logger = logging.getLogger("webpoll")
 
 def fetch(url):
     """make an HTTP GET request and return the data @ url"""
@@ -21,7 +22,7 @@ def fetch(url):
         req = urllib2.Request(url)
         return urllib2.urlopen(req).read()
     except Exception as ex:
-        logging.error("Failed to fetch url "+ url +" due to "+str(ex))
+        logger.error("Failed to fetch url "+ url +" due to "+str(ex))
         return None
 
 def filter_links(html_page):
@@ -112,7 +113,7 @@ class WebPoll(object):
 
         if notifications:
             email_body = msg_body_builder(notifications, now.isoformat())
-            logging.debug("Sending email message")
+            logger.debug("Sending email message")
             self.notify_by_email(email_body)
 
     def notify_by_email(self, msg_body):
@@ -134,7 +135,7 @@ class WebPoll(object):
                 self.tick(start_time)
                 end_time = datetime.datetime.now()
             except Exception as ex:
-                logging.error("Tick failed! :"+str(ex))
+                logger.error("Tick failed! :"+str(ex))
             finally:
                 time_delta = end_time - start_time
                 sleep_seconds = max(0, self.poll_interval - time_delta.seconds)
@@ -152,13 +153,11 @@ def main():
             return default
         
     log_path = get_param("log_path", os.path.expanduser("~/.webpoll.log"))
-    logging.basicConfig(
-        filename=log_path, 
-        #stream=sys.stdout,
-        format='%(asctime)s %(message)s', 
-        datefmt='%m/%d/%Y %I:%M:%S %p', 
-        level=logging.DEBUG)
-
+    log_format = logging.Formatter(fmt='%(asctime)s %(message)s', datefmt='%m/%d/%Y %I:%M:%S %p')
+    log_handler = logging.handlers.RotatingFileHandler(log_path, maxBytes=1024*1024, backupCount=5)
+    log_handler.setFormatter(log_format)
+    logger.addHandler(log_handler)
+    logger.setLevel(logging.DEBUG)
 
     email_user = get_param("email_user")
     assert(email_user)
