@@ -24,19 +24,20 @@ links=
 link_regexs=
 email_user=
 email_server_address=smtp.gmail.com:587
-email_recipients= email_user
+email_recipients=email_user
 poll_interval_seconds=600
 </pre>
 
 where:
 
-    * links: csv links
-    * link_regexs: csv of regexs to search for in thelinks
-    * email_user is the account from which you will send the notifications 
-    * email_server is the smtp server that will send the messages (default shown)
-    * email_recipients will recieve the messages (default shown)
+* links: csv links
+* link_regexs: csv of regexs to search for in thelinks
+* email_user: the account username from which notifications will be sent
+* email_server: the smtp server that will send the messages (default shown)
+* email_recipients: csv list of recipients that will recieve the notification messages (default shown)
+* poll_interval_seconds: the time interval between sucessive crawls of each link
     
-Running the daemon script will prompt for the password for email_user
+Running the daemon script will prompt for the password for email_user.
 
 
 ### Logging
