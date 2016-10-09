@@ -1,5 +1,6 @@
+"""Periodically poll web-pages and send email-notifications if specified links are found"""
+
 import urllib2
-from bs4 import BeautifulSoup
 import re
 import time
 import threading
@@ -11,10 +12,11 @@ import collections
 import getpass
 import logging
 import logging.handlers
-import sys
+from bs4 import BeautifulSoup
 
 Notification = collections.namedtuple("Notification", ["url", "link"])
-logger = logging.getLogger("webpoll")
+
+LOG = logging.getLogger("webpoll")
 
 def fetch(url):
     """make an HTTP GET request and return the data @ url"""
@@ -22,12 +24,12 @@ def fetch(url):
         req = urllib2.Request(url)
         return urllib2.urlopen(req).read()
     except Exception as ex:
-        logger.error("Failed to fetch url "+ url +" due to "+str(ex))
+        LOG.error("Failed to fetch url "+ url +" due to "+str(ex))
         return None
 
 def filter_links(html_page):
     """
-    args: 
+    args:
         page: a str formatted like an html  document
     return: equivalent to x-parth //a[@href]
     """
@@ -43,7 +45,7 @@ def msg_body_builder(notifications, timestamp):
     return:
         email body expressing notification information
     """
-    assert(len(notifications) > 0)
+    assert len(notifications) > 0
 
     notification_msg = "\n".join(["The web page {} links to {}.".format(n.url, n.link)
                                   for n in notifications])
@@ -85,6 +87,7 @@ class WebPoll(object):
 
     @property
     def is_finished(self):
+        """is the runnable finished"""
         with self.lock:
             return self._is_finished
 
@@ -94,14 +97,10 @@ class WebPoll(object):
             self._is_finished = is_finished
 
     def close(self):
+        """set is finished to true"""
         self.is_finished = True
 
-    def tick(self, now):
-        """
-        fetches and filters the links in each page in self.target_urls 
-        and notifies each of self.email_targets 
-        via email if any of the links match any of self.target_links
-        """
+    def get_notifications(self):
         pages = [fetch(url) for url in self.target_urls]
 
         notifications = [Notification(url, link)
@@ -110,12 +109,8 @@ class WebPoll(object):
                          for link in filter_links(page)
                          if page is not None
                          if regex.search(link)]
-
-        if notifications:
-            email_body = msg_body_builder(notifications, now.isoformat())
-            logger.debug("Sending email message")
-            self.notify_by_email(email_body)
-
+        return notifications
+    
     def notify_by_email(self, msg_body):
         """
         send email message from self.email_user to self.email_targets stating that link_regex_pattern is
@@ -129,13 +124,25 @@ class WebPoll(object):
         server.quit()
 
     def run(self):
+        """
+        fetches and filters the links in each page in self.target_urls
+        and notifies each of self.email_targets
+        via email if any of the links match any of self.target_links that
+        were not linked to in the previous tick
+        """
+        previous_notifications = set()
         while not self.is_finished:
             try:
                 start_time = datetime.datetime.now()
-                self.tick(start_time)
-                end_time = datetime.datetime.now()
+                notifications = self.get_notifications()
+                new_notifications = [note for note in notifications if not note in previous_notifications]
+                if new_notifications:
+                    email_body = msg_body_builder(new_notifications, start_time.isoformat())
+                    LOG.debug("Sending email message")
+                    self.notify_by_email(email_body)
+                previous_notifications = set(notifications)
             except Exception as ex:
-                logger.error("Tick failed! :"+str(ex))
+                LOG.error("Tick failed! :"+str(ex))
             finally:
                 end_time = datetime.datetime.now()
                 time_delta = end_time - start_time
@@ -146,23 +153,25 @@ class WebPoll(object):
 def main():
     config = ConfigParser.ConfigParser()
     config.read(["app.cfg", os.path.expanduser("~/.webpoll.cfg")])
-    
+
     def get_param(param, default=None):
+        """get param or default from config"""
         try:
             return config.get("webpoll", param)
         except ConfigParser.NoOptionError:
             return default
-        
+
     log_path = get_param("log_path", os.path.expanduser("~/.webpoll.log"))
     log_format = logging.Formatter(fmt='%(asctime)s %(message)s', datefmt='%m/%d/%Y %I:%M:%S %p')
     log_handler = logging.handlers.RotatingFileHandler(log_path, maxBytes=1024*1024, backupCount=5)
     log_handler.setFormatter(log_format)
-    logger.addHandler(log_handler)
-    logger.setLevel(logging.DEBUG)
+
+    LOG.addHandler(log_handler)
+    LOG.setLevel(logging.DEBUG)
 
     email_user = get_param("email_user")
-    assert(email_user)
-    
+    assert email_user
+ 
     get_list_param = lambda x: get_param(x).split(",")
 
     email_password = get_param("email_password")
